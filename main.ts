@@ -9,7 +9,7 @@
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -23,8 +23,13 @@ const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 if (!existsSync(join(here, 'game', 'index.html'))) {
   throw new Error('game/index.html is missing: nothing to hand in');
 }
-rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
+// Empty the output directory's contents instead of deleting the directory
+// itself: in the grader's sandbox /output is a mount the runner cannot
+// delete, so rmSync on it throws EPERM and the program exits 1.
+for (const child of readdirSync(out)) {
+  rmSync(join(out, child), { recursive: true, force: true });
+}
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
 if (existsSync(join(here, 'screenshots'))) {

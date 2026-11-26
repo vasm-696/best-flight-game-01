@@ -499,6 +499,33 @@ export function createRenderer(canvas) {
     text(prompt, FIELD.width / 2, y + height - 34, 22, PALETTE.ring, 'center');
   }
 
+  // Compact title block tucked into the upper-right corner: the old centred
+  // panel hid the plane, so the title now leaves the centre of the frame —
+  // the plane, the runway ahead and the next ring — in the open. Right, not
+  // left, so the first ring (centre-left in the start shot) stays clear.
+  function drawTitlePanel(best) {
+    const width = 520;
+    const height = 240;
+    const x = FIELD.width - 24 - width;
+    const y = 150;
+    context.fillStyle = PALETTE.panel;
+    context.fillRect(x, y, width, height);
+    context.strokeStyle = PALETTE.panelEdge;
+    context.lineWidth = 2;
+    context.strokeRect(x, y, width, height);
+    text('Skyline Courier', x + 24, y + 52, 38, PALETTE.text, 'left');
+    const lines = [
+      'Fly the courier run: rings, runway landings,',
+      'fuel and damage across three sorties.',
+      'W/S throttle · A/D turn · R/F climb/descend.',
+      best > 0 ? `Best score ${best}` : 'First flight — make it count.',
+    ];
+    lines.forEach((line, i) => {
+      text(line, x + 24, y + 96 + i * 30, 16, PALETTE.muted, 'left');
+    });
+    text('Press Space or click to start', x + 24, y + height - 26, 19, PALETTE.ring, 'left');
+  }
+
   function draw(flight, world, screen, best, tilt) {
     const s = flight.state;
     const t = tilt || { bank: 0, pitch: 0 };
@@ -518,16 +545,10 @@ export function createRenderer(canvas) {
     drawRings(world, projector, flight.nextRing());
     drawPlane(s, t.bank, s.throttle);
     if (screen === SCREEN_TITLE) {
-      drawPanel(
-        'Skyline Courier',
-        [
-          'Fly the courier run: rings, runway landings, fuel and damage.',
-          'W/S throttle · A/D turn · R/F climb and descend · mouse steers too.',
-          'Three sorties: ring run, runway landing, delivery. Land to refuel.',
-          best > 0 ? `Best score ${best}` : 'First flight — make it count.',
-        ],
-        'Press Space or click to start',
-      );
+      // Instruments stay lit behind the title: the cover should read as a
+      // flight in progress, not a menu over a postcard.
+      drawHud(flight, world, t);
+      drawTitlePanel(best);
       return;
     }
     drawHud(flight, world, t);

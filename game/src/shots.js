@@ -10,7 +10,7 @@ import { EVENT_OVER } from './world.js';
 import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
 const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
+const PLAY_SECONDS = 15;
 const END_LIMIT_SECONDS = 600;
 const END_RECKLESS_AFTER_SECONDS = 18;
 

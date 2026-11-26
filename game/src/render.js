@@ -461,7 +461,7 @@ export function createRenderer(canvas) {
     text(`${Math.floor(s.time / 60)}:${String(Math.floor(s.time % 60)).padStart(2, '0')}`, FIELD.width - 22, 74, 16, PALETTE.hudDim, 'right', 'top');
     // Bottom-left fuel and damage bars.
     bar(22, FIELD.height - 66, 220, 16, s.fuel / 100, s.fuel < 25 ? PALETTE.hudWarn : PALETTE.hudGood, `FUEL ${Math.round(s.fuel)}%`);
-    bar(22, FIELD.height - 30, 220, 16, 1 - s.damage / 100, s.damage > 60 ? PALETTE.hudWarn : PALETTE.hudGood, `DAMAGE ${Math.round(s.damage)}%`);
+    bar(22, FIELD.height - 30, 220, 16, 1 - s.damage / 100, s.damage > 60 ? PALETTE.hudWarn : PALETTE.hudGood, `DAMAGE ${Math.min(100, Math.round(s.damage))}%`);
     drawArtificialHorizon(tilt.bank, tilt.pitch);
     // Target readout: distance and direction to the next ring or the runway.
     if (target) {

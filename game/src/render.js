@@ -131,6 +131,22 @@ export function createRenderer(canvas) {
           fwd,
         };
       },
+      // Same projection, but points behind the camera are clamped onto the
+      // near plane instead of dropped: used for the runway strip, which the
+      // camera can straddle at takeoff, so the strip still reads instead of
+      // vanishing the moment its near end passes behind the camera.
+      projectClamped(px, py, pz) {
+        const dx = px - cam.x;
+        const dy = py - cam.y;
+        const dz = pz - cam.z;
+        const fwd = Math.max(dx * sinH + dz * cosH, 6);
+        const lat = dx * cosH - dz * sinH;
+        return {
+          x: CX + (lat / fwd) * FOCAL,
+          y: horizonY - (dy / fwd) * FOCAL,
+          fwd,
+        };
+      },
     };
   }
 
@@ -147,8 +163,10 @@ export function createRenderer(canvas) {
     for (let r = rows.length - 1; r >= 0; r--) {
       const d0 = rows[r];
       const d1 = r + 1 < rows.length ? rows[r + 1] : d0 * 1.17;
-      const spread0 = d0 * 0.95;
-      const spread1 = d1 * 0.95;
+      // Wide enough that the far rows still span the frame: at 0.95 the
+      // strips stopped short of the screen edges and left dark bands.
+      const spread0 = d0 * 1.35;
+      const spread1 = d1 * 1.35;
       const pts0 = [];
       const pts1 = [];
       let centreH = 0;
@@ -181,7 +199,10 @@ export function createRenderer(canvas) {
     // Ground grid: a few fixed world-x lines running ahead, faint white.
     context.strokeStyle = PALETTE.grid;
     context.lineWidth = 1;
+    // No line on the flight path itself: gx=0 ran straight through the
+    // plane and read as a string tied to its nose.
     for (let gx = -600; gx <= 600; gx += 200) {
+      if (gx === 0) continue;
       context.beginPath();
       let started = false;
       for (let z = 0; z <= 900; z += 60) {
@@ -232,13 +253,24 @@ export function createRenderer(canvas) {
   function drawRunway(world, projector) {
     const r = world.runway;
     const half = r.width / 2;
-    const corners = [
+    // If the whole strip is behind the camera there is nothing to draw;
+    // otherwise clamp the near corners onto the near plane instead of
+    // dropping the strip — at takeoff the plane is already past the
+    // threshold, and the old all-or-nothing check made the runway vanish
+    // from the cover shot entirely.
+    const ahead = [
       projector.project(r.x - half, r.elevation + 0.3, r.z - r.length / 2),
       projector.project(r.x + half, r.elevation + 0.3, r.z - r.length / 2),
       projector.project(r.x + half, r.elevation + 0.3, r.z + r.length / 2),
       projector.project(r.x - half, r.elevation + 0.3, r.z + r.length / 2),
     ];
-    if (corners.some((c) => c === null)) return;
+    if (ahead.every((c) => c === null)) return;
+    const corners = [
+      projector.projectClamped(r.x - half, r.elevation + 0.3, r.z - r.length / 2),
+      projector.projectClamped(r.x + half, r.elevation + 0.3, r.z - r.length / 2),
+      projector.projectClamped(r.x + half, r.elevation + 0.3, r.z + r.length / 2),
+      projector.projectClamped(r.x - half, r.elevation + 0.3, r.z + r.length / 2),
+    ];
     context.fillStyle = PALETTE.runway;
     context.beginPath();
     context.moveTo(corners[0].x, corners[0].y);
@@ -252,9 +284,8 @@ export function createRenderer(canvas) {
     context.strokeStyle = PALETTE.runwayLine;
     context.lineWidth = 2;
     for (let s = -r.length / 2 + 20; s < r.length / 2 - 10; s += 40) {
-      const a = projector.project(r.x, r.elevation + 0.5, r.z + s);
-      const b = projector.project(r.x, r.elevation + 0.5, r.z + s + 20);
-      if (!a || !b) continue;
+      const a = projector.projectClamped(r.x, r.elevation + 0.5, r.z + s);
+      const b = projector.projectClamped(r.x, r.elevation + 0.5, r.z + s + 20);
       context.beginPath();
       context.moveTo(a.x, a.y);
       context.lineTo(b.x, b.y);
@@ -268,7 +299,7 @@ export function createRenderer(canvas) {
       const p = projector.project(ring.x, ring.y, ring.z);
       if (!p) continue;
       const rx = (ring.radius / p.fwd) * FOCAL;
-      if (rx < 2) continue;
+      if (rx < 4) continue;
       const isNext = nextRing && ring.index === nextRing.index;
       context.lineWidth = Math.max(2, rx * 0.09);
       if (ring.passed) {
@@ -280,13 +311,17 @@ export function createRenderer(canvas) {
         context.ellipse(p.x, p.y, rx * 1.25, rx * 1.15, 0, 0, Math.PI * 2);
         context.fill();
       } else {
-        context.strokeStyle = 'rgba(255,180,0,0.55)';
+        context.strokeStyle = 'rgba(255,180,0,0.32)';
       }
       context.beginPath();
       context.ellipse(p.x, p.y, rx, rx * 0.92, 0, 0, Math.PI * 2);
       context.stroke();
       if (isNext) {
-        text(`RING ${ring.index + 1}`, p.x, p.y - rx - 10, 20, PALETTE.ring, 'center');
+        // Keep the label clear of the compass and instrument band at the
+        // top: when the ring rides high, label it from below instead.
+        const labelY = p.y - rx - 10;
+        if (labelY < 100) text(`RING ${ring.index + 1}`, p.x, p.y + rx + 30, 20, PALETTE.ring, 'center');
+        else text(`RING ${ring.index + 1}`, p.x, labelY, 20, PALETTE.ring, 'center');
       }
     }
   }
@@ -367,14 +402,20 @@ export function createRenderer(canvas) {
       const a = deg + off;
       const norm = ((a % 360) + 360) % 360;
       const x = CX + off * 1.05;
-      const major = norm % 45 === 0;
+      // Round before the modulo: with a fractional heading the exact
+      // equality almost never hit, so the letters only appeared when the
+      // heading was exactly a multiple of 15 degrees.
+      const major = Math.round(norm) % 45 === 0;
       context.strokeStyle = major ? PALETTE.hud : PALETTE.hudDim;
       context.lineWidth = major ? 2 : 1;
+      // Ticks live in the top half of the strip, labels in the bottom
+      // half: the old ticks ran through the label row and the letters
+      // read as a jumble with a line struck through each one.
       context.beginPath();
-      context.moveTo(x, y + 12);
-      context.lineTo(x, y + (major ? -4 : 2));
+      context.moveTo(x, y + 2);
+      context.lineTo(x, y + (major ? -8 : -2));
       context.stroke();
-      if (major) text(compassLabel(norm), x, y + 2, 13, PALETTE.hud, 'center', 'top');
+      if (major) text(compassLabel(Math.round(norm)), x, y + 2, 13, PALETTE.hud, 'center', 'top');
     }
     context.restore();
     context.strokeStyle = PALETTE.hud;

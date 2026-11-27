@@ -18,6 +18,8 @@ export const PLANE = {
   cameraBehind: 26,
   cameraAbove: 7,
   focal: 620,
+  // How large the plane is drawn in the chase view (1.3 = one size up).
+  drawScale: 1.3,
 };
 
 export const FUEL = {
@@ -55,6 +57,8 @@ export const PALETTE = {
   groundLow: '#4d7a3d',
   groundMid: '#6b8f4e',
   groundHigh: '#8a7a5a',
+  water: '#4a90c2',
+  waterEdge: '#8fc4e8',
   rock: '#7d7468',
   snow: '#eef3f6',
   grid: 'rgba(255,255,255,0.16)',

@@ -149,6 +149,31 @@ export function createWorld(seed = 1) {
     peaks.push({ x: px, z: pz, height: 140 + rng() * 160, width: 260 + rng() * 220 });
   }
 
+  // Farmland and water, visual only: fixed patches along the flight corridor
+  // so the ground reads as lived-in instead of one flat green. Generated
+  // after the rings and peaks, so their seeded layout does not move.
+  const fieldColors = ['#7a9a4a', '#b5a45e', '#5d8148', '#8a9a5b'];
+  const fields = [];
+  for (let i = 0; i < 10; i++) {
+    const fx = (rng() - 0.5) * 900;
+    const fz = 250 + rng() * 2200;
+    if (Math.abs(fx) < 70 && fz < 500) continue; // keep the runway clear
+    fields.push({
+      x: fx,
+      z: fz,
+      w: 120 + rng() * 180,
+      d: 90 + rng() * 160,
+      color: fieldColors[i % fieldColors.length],
+    });
+  }
+  const lakes = [];
+  for (let i = 0; i < 3; i++) {
+    const lx = (rng() - 0.5) * 800;
+    const lz = 350 + rng() * 2000;
+    if (Math.abs(lx) < 90 && lz < 600) continue;
+    lakes.push({ x: lx, z: lz, rx: 90 + rng() * 120, rz: 60 + rng() * 90 });
+  }
+
   return {
     seed: String(seed),
     heightAt,
@@ -156,6 +181,8 @@ export function createWorld(seed = 1) {
     runway,
     rings,
     peaks,
+    fields,
+    lakes,
     courseLength: 420 + (ringCount - 1) * 260 + 400,
     groundAt(x, z) {
       return heightAt(x, z);

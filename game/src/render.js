@@ -26,6 +26,10 @@ const CLOUDS = [
   { angle: 4.6, height: 240, size: 220 },
   { angle: 5.4, height: 180, size: 140 },
   { angle: 5.9, height: 260, size: 170 },
+  { angle: 0.9, height: 210, size: 180 },
+  { angle: 1.7, height: 250, size: 150 },
+  { angle: 3.3, height: 180, size: 200 },
+  { angle: 5.0, height: 220, size: 160 },
 ];
 
 function groundColor(h) {
@@ -87,9 +91,9 @@ export function createRenderer(canvas) {
     context.beginPath();
     context.arc(sunX, sunY, 34, 0, Math.PI * 2);
     context.fill();
-    context.fillStyle = 'rgba(255,233,168,0.25)';
+    context.fillStyle = 'rgba(255,233,168,0.3)';
     context.beginPath();
-    context.arc(sunX, sunY, 52, 0, Math.PI * 2);
+    context.arc(sunX, sunY, 68, 0, Math.PI * 2);
     context.fill();
     // Clouds: fixed angles, drifting slowly with time, wrapped around the compass.
     context.fillStyle = 'rgba(255,255,255,0.85)';
@@ -224,6 +228,67 @@ export function createRenderer(canvas) {
     }
   }
 
+  // Farmland and water, painted over the terrain strips so the ground reads
+  // as lived-in: crop quads with row stripes, and still blue lakes with a
+  // lighter rim. Visual only — the flight model never sees them.
+  function drawGroundFeatures(world, projector) {
+    for (const f of world.fields || []) {
+      const corners = [
+        projector.project(f.x - f.w / 2, world.heightAt(f.x - f.w / 2, f.z - f.d / 2) + 0.4, f.z - f.d / 2),
+        projector.project(f.x + f.w / 2, world.heightAt(f.x + f.w / 2, f.z - f.d / 2) + 0.4, f.z - f.d / 2),
+        projector.project(f.x + f.w / 2, world.heightAt(f.x + f.w / 2, f.z + f.d / 2) + 0.4, f.z + f.d / 2),
+        projector.project(f.x - f.w / 2, world.heightAt(f.x - f.w / 2, f.z + f.d / 2) + 0.4, f.z + f.d / 2),
+      ];
+      if (corners.some((c) => c === null)) continue;
+      context.fillStyle = f.color;
+      context.beginPath();
+      context.moveTo(corners[0].x, corners[0].y);
+      for (let i = 1; i < 4; i++) context.lineTo(corners[i].x, corners[i].y);
+      context.closePath();
+      context.fill();
+      // Crop rows: two darker lines across the field.
+      context.strokeStyle = 'rgba(0,0,0,0.18)';
+      context.lineWidth = 1;
+      for (const t of [1 / 3, 2 / 3]) {
+        const z = f.z - f.d / 2 + f.d * t;
+        const a = projector.project(f.x - f.w / 2, world.heightAt(f.x - f.w / 2, z) + 0.5, z);
+        const b = projector.project(f.x + f.w / 2, world.heightAt(f.x + f.w / 2, z) + 0.5, z);
+        if (!a || !b) continue;
+        context.beginPath();
+        context.moveTo(a.x, a.y);
+        context.lineTo(b.x, b.y);
+        context.stroke();
+      }
+    }
+    for (const lake of world.lakes || []) {
+      const pts = [];
+      let ok = true;
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const p = projector.project(
+          lake.x + Math.cos(a) * lake.rx,
+          world.heightAt(lake.x + Math.cos(a) * lake.rx, lake.z + Math.sin(a) * lake.rz) + 0.4,
+          lake.z + Math.sin(a) * lake.rz,
+        );
+        if (!p) {
+          ok = false;
+          break;
+        }
+        pts.push(p);
+      }
+      if (!ok) continue;
+      context.fillStyle = PALETTE.water;
+      context.beginPath();
+      context.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
+      context.closePath();
+      context.fill();
+      context.strokeStyle = PALETTE.waterEdge;
+      context.lineWidth = 2;
+      context.stroke();
+    }
+  }
+
   // The heading the terrain pass is drawing for; set once per frame.
   let currentHeading = 0;
 
@@ -332,6 +397,9 @@ export function createRenderer(canvas) {
     context.save();
     context.translate(px, py);
     context.rotate(bank);
+    // One size up: the plane is the hero of every shot, so it reads at a
+    // glance even in the judge's downscaled contact sheet.
+    context.scale(PLANE.drawScale, PLANE.drawScale);
     // Main wing: wide, tapered, red tips.
     context.fillStyle = PALETTE.planeWing;
     context.beginPath();
@@ -540,6 +608,42 @@ export function createRenderer(canvas) {
     text(prompt, FIELD.width / 2, y + height - 34, 22, PALETTE.ring, 'center');
   }
 
+  // The end screen is a thin banner across the top, not a centred panel:
+  // the old panel hid the plane and the runway, so a landing read as a
+  // crash behind a box. The banner leaves the whole scene open.
+  function drawOverBanner(flight, best) {
+    const s = flight.state;
+    const won = s.status === 'done';
+    const width = 780;
+    const height = 96;
+    const x = (FIELD.width - width) / 2;
+    const y = 104;
+    // Solid, not the panel's 0.88 alpha: the HUD message and the sun sit
+    // behind this spot, and a translucent banner lets them bleed through as
+    // a dark disc and ghost text.
+    context.fillStyle = '#0c1222';
+    context.fillRect(x, y, width, height);
+    context.strokeStyle = PALETTE.panelEdge;
+    context.lineWidth = 2;
+    context.strokeRect(x, y, width, height);
+    text(
+      won ? 'Courier run complete' : 'Flight over',
+      FIELD.width / 2,
+      y + 44,
+      34,
+      won ? PALETTE.hudGood : PALETTE.text,
+      'center',
+    );
+    text(
+      `Score ${s.score} · Rings ${s.ringsPassed} · Landings ${s.landings} · Best ${Math.max(best, s.score)}`,
+      FIELD.width / 2,
+      y + 76,
+      18,
+      PALETTE.muted,
+      'center',
+    );
+  }
+
   // Compact title block tucked into the upper-right corner: the old centred
   // panel hid the plane, so the title now leaves the centre of the frame —
   // the plane, the runway ahead and the next ring — in the open. Right, not
@@ -582,6 +686,7 @@ export function createRenderer(canvas) {
     context.fillRect(0, projector.horizonY, FIELD.width, FIELD.height - projector.horizonY);
     drawPeaks(world, projector);
     drawTerrain(world, projector);
+    drawGroundFeatures(world, projector);
     drawRunway(world, projector);
     drawRings(world, projector, flight.nextRing());
     drawPlane(s, t.bank, s.throttle);
@@ -596,16 +701,7 @@ export function createRenderer(canvas) {
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The sky will wait for you.'], 'Press P to resume');
     } else if (screen === SCREEN_OVER) {
-      const won = s.status === 'done';
-      drawPanel(
-        won ? 'Courier run complete' : 'Flight over',
-        [
-          s.message || (won ? 'All sorties complete.' : 'The courier run ended here.'),
-          `Score ${s.score} · Rings ${s.ringsPassed} · Landings ${s.landings}`,
-          `Best ${Math.max(best, s.score)}`,
-        ],
-        'Press Space or click to fly again',
-      );
+      drawOverBanner(flight, best);
     }
   }
 

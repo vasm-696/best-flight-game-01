@@ -12,7 +12,6 @@ import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 const START_SECONDS = 2.5;
 const PLAY_SECONDS = 14.4;
 const END_LIMIT_SECONDS = 600;
-const END_RECKLESS_AFTER_SECONDS = 18;
 
 function clamp(value, low, high) {
   return value < low ? low : value > high ? high : value;
@@ -65,13 +64,10 @@ export function stageShot(name, flight) {
   }
   const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
   for (let i = 0; i < limit / STEP; i++) {
-    let controls;
-    if (name === 'end' && i * STEP > END_RECKLESS_AFTER_SECONDS) {
-      // A hurried pilot: full throttle, nose down, straight into the ridge.
-      controls = { turn: 0, throttle: 1, climb: -1 };
-    } else {
-      controls = autopilot(flight);
-    }
+    // The end scene flies the whole course on autopilot to a real finish:
+    // rings, runway landings, all three sorties, status 'done'. No staged
+    // crash — the frame is a landing, not a wreck.
+    const controls = autopilot(flight);
     if (flight.step(STEP, controls, false) & EVENT_OVER) break;
   }
   const over = flight.state.status === 'crashed' || flight.state.status === 'done';
